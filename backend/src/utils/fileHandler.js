@@ -7,7 +7,7 @@ class FileHandler {
   }
 
   async ensureDirectories() {
-    const dirs = ['./uploads', './temp', './output'];
+    const dirs = ['./uploads', './temp'];  // Removed output dir since we use Cloudinary
     for (const dir of dirs) {
       try {
         await fs.access(dir);
@@ -17,13 +17,17 @@ class FileHandler {
     }
   }
 
-  updateJobStatus(jobId, status, message, progress = null) {
+  updateJobStatus(jobId, status, message, progress = null, cloudinaryUrls = null) {
     console.log(`📊 Updating job ${jobId}: ${status} - ${message}`);
+    
+    const existingJob = this.jobs.get(jobId) || {};
+    
     this.jobs.set(jobId, {
       jobId,
       status,
       message,
       progress,
+      cloudinaryUrls: cloudinaryUrls || existingJob.cloudinaryUrls,
       updatedAt: new Date().toISOString()
     });
   }
@@ -39,22 +43,14 @@ class FileHandler {
     return { 
       jobId,
       status: 'not_found', 
-      message: 'Job not found in memory. Check if video was generated.' 
+      message: 'Job not found in memory.' 
     };
-  }
-
-  fileExists(filePath) {
-    try {
-      return fs.access(filePath).then(() => true).catch(() => false);
-    } catch {
-      return false;
-    }
   }
 
   async cleanupTempFiles(jobId) {
     try {
-      const tempPattern = `./temp/${jobId}*`;
-      console.log(`🧹 Cleaned up temp files for job ${jobId}`);
+      console.log(`🧹 Cleaning up temp files for job ${jobId}`);
+      // Only temp files remain, uploads and outputs are on Cloudinary
     } catch (error) {
       console.error('Cleanup error:', error);
     }

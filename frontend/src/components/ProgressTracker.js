@@ -5,11 +5,11 @@ function ProgressTracker({ jobId, onComplete }) {
   const [status, setStatus] = useState({ status: 'starting', message: 'Initializing...' });
   const [downloadReady, setDownloadReady] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
-  const [debugInfo, setDebugInfo] = useState(null);
+  const [cloudinaryUrls, setCloudinaryUrls] = useState(null);
 
   useEffect(() => {
     let pollCount = 0;
-    const maxPolls = 150; // 5 minutes max
+    const maxPolls = 150;
 
     const pollStatus = async () => {
       pollCount++;
@@ -21,57 +21,29 @@ function ProgressTracker({ jobId, onComplete }) {
         setStatus(response.data);
 
         if (response.data.status === 'completed') {
-          console.log('✅ Job completed! Checking video availability...');
+          console.log('✅ Job completed! Video available on Cloudinary');
           setDownloadReady(true);
           setVideoReady(true);
-          
-          // Get debug info
-          try {
-            const debugResponse = await axios.get(`http://localhost:5000/api/video/debug/${jobId}`);
-            setDebugInfo(debugResponse.data);
-            console.log('🔍 Debug info:', debugResponse.data);
-          } catch (debugError) {
-            console.error('Debug check failed:', debugError);
-          }
-          
+          setCloudinaryUrls(response.data.cloudinaryUrls);
           onComplete();
-          return true; // Stop polling
+          return true;
         } else if (response.data.status === 'failed') {
           console.error('❌ Job failed:', response.data.message);
-          return true; // Stop polling
+          return true;
         }
       } catch (error) {
         console.error('⚠️ Status check error:', error);
         
-        if (pollCount > 30) {
-          try {
-            const debugResponse = await axios.get(`http://localhost:5000/api/video/debug/${jobId}`);
-            console.log('🔍 Debug response:', debugResponse.data);
-            
-            if (debugResponse.data.files && debugResponse.data.files.length > 0) {
-              console.log('✅ Found video files, marking as completed!');
-              setStatus({ status: 'completed', message: 'Video processing complete!' });
-              setDownloadReady(true);
-              setVideoReady(true);
-              setDebugInfo(debugResponse.data);
-              onComplete();
-              return true;
-            }
-          } catch (debugError) {
-            console.error('Debug check failed:', debugError);
-          }
-        }
-        
         if (pollCount >= maxPolls) {
           setStatus({ 
             status: 'timeout', 
-            message: 'Processing timed out. Please check backend logs.' 
+            message: 'Processing timed out. Please try again.' 
           });
           return true;
         }
       }
       
-      return false; // Continue polling
+      return false;
     };
 
     const interval = setInterval(async () => {
@@ -81,29 +53,28 @@ function ProgressTracker({ jobId, onComplete }) {
       }
     }, 2000);
 
-    // Initial poll
     pollStatus();
 
     return () => clearInterval(interval);
   }, [jobId, onComplete]);
 
   const handleDownload = () => {
-    const downloadUrl = `http://localhost:5000/api/video/download/${jobId}`;
-    console.log('📥 Downloading from:', downloadUrl);
-    window.open(downloadUrl, '_blank');
-  };
-
-  const handleDirectFileAccess = () => {
-    const fileUrl = `http://localhost:5000/api/video/file/${jobId}`;
-    console.log('📁 Opening file directly:', fileUrl);
-    window.open(fileUrl, '_blank');
+    if (cloudinaryUrls?.download) {
+      console.log('📥 Downloading from Cloudinary:', cloudinaryUrls.download);
+      window.open(cloudinaryUrls.download, '_blank');
+    } else {
+      const downloadUrl = `http://localhost:5000/api/video/download/${jobId}`;
+      console.log('📥 Downloading via backend:', downloadUrl);
+      window.open(downloadUrl, '_blank');
+    }
   };
 
   const getProgressSteps = () => [
     { key: 'starting', label: 'Initializing', icon: '🚀' },
     { key: 'processing', label: 'Processing Video', icon: '⚙️' },
-    { key: 'generating', label: 'Adding Audio', icon: '🎵' },
-    { key: 'completed', label: 'Complete!', icon: '✅' }
+    { key: 'generating', label: 'Adding AI Voice', icon: '🎵' },
+    { key: 'uploading', label: 'Uploading to Cloud', icon: '☁️' },
+    { key: 'completed', label: 'Ready!', icon: '✅' }
   ];
 
   const currentStepIndex = getProgressSteps().findIndex(step => step.key === status.status);
@@ -114,7 +85,6 @@ function ProgressTracker({ jobId, onComplete }) {
       <h2>🎬 Processing Your Video</h2>
       <p className="job-id">Job ID: {jobId}</p>
 
-      {/* Progress Steps */}
       <div className="progress-steps">
         {getProgressSteps().map((step, index) => (
           <div
@@ -129,35 +99,15 @@ function ProgressTracker({ jobId, onComplete }) {
         ))}
       </div>
 
-      {/* Status Message */}
       <div className="status-message">
         <h3>Current Status</h3>
         <p>{status.message}</p>
         <p><small>Status: {status.status}</small></p>
       </div>
 
-      {/* Debug Information */}
-      {debugInfo && (
-        <div className="debug-info" style={{ 
-          backgroundColor: '#f8f9fa', 
-          padding: '15px', 
-          borderRadius: '8px',
-          margin: '20px 0'
-        }}>
-          <h4>🔍 Debug Information:</h4>
-          <p>Files found: {debugInfo.totalFiles}</p>
-          {debugInfo.files && debugInfo.files.map((file, index) => (
-            <div key={index} style={{ fontSize: '12px', fontFamily: 'monospace' }}>
-              📁 {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Video Preview */}
       {status.status === 'completed' && videoReady && (
         <div style={{ margin: '30px 0', textAlign: 'center' }}>
-          <h3>🎬 Your Generated Video:</h3>
+          <h3>🎬 Your Generated Video (Powered by Cloudinary):</h3>
           
           <video 
             controls 
@@ -172,47 +122,50 @@ function ProgressTracker({ jobId, onComplete }) {
             }}
             onError={(e) => {
               console.error('🎬 Video load error:', e);
-              console.log('🔄 Video may not be accessible via streaming...');
             }}
-            onLoadStart={() => console.log('🎬 Video loading started')}
-            onCanPlay={() => console.log('🎬 Video can play')}
+            onLoadStart={() => console.log('🎬 Video loading from Cloudinary')}
+            onCanPlay={() => console.log('🎬 Video ready to play')}
           >
+            {cloudinaryUrls?.streaming && (
+              <source src={cloudinaryUrls.streaming} type="video/mp4" />
+            )}
+            {cloudinaryUrls?.processed && (
+              <source src={cloudinaryUrls.processed} type="video/mp4" />
+            )}
             <source src={`http://localhost:5000/api/video/stream/${jobId}`} type="video/mp4" />
-            <source src={`http://localhost:5000/api/video/preview/${jobId}`} type="video/mp4" />
-            <source src={`http://localhost:5000/api/video/file/${jobId}`} type="video/mp4" />
             Your browser does not support the video tag.
           </video>
           
           <div style={{ marginTop: '15px' }}>
-            <button onClick={handleDownload} className="download-button" style={{
+            <button onClick={handleDownload} style={{
               padding: '12px 24px',
               backgroundColor: '#28a745',
               color: 'white',
               border: 'none',
               borderRadius: '8px',
-              marginRight: '10px',
-              cursor: 'pointer'
+              cursor: 'pointer',
+              fontSize: '16px'
             }}>
               📥 Download Video
             </button>
-            
-            <button onClick={handleDirectFileAccess} className="file-button" style={{
-              padding: '12px 24px',
-              backgroundColor: '#007bff',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer'
-            }}>
-              📁 Open File Directly
-            </button>
           </div>
+
+          {cloudinaryUrls && (
+            <div style={{
+              marginTop: '15px',
+              padding: '10px',
+              backgroundColor: '#e8f5e8',
+              borderRadius: '5px',
+              fontSize: '12px'
+            }}>
+              ☁️ Video hosted on Cloudinary CDN for fast global delivery
+            </div>
+          )}
         </div>
       )}
 
-      {/* Success Message */}
       {status.status === 'completed' && (
-        <div style={{ 
+        <div style={{
           backgroundColor: '#d4edda',
           border: '1px solid #c3e6cb',
           color: '#155724',
@@ -221,14 +174,14 @@ function ProgressTracker({ jobId, onComplete }) {
           margin: '20px 0',
           textAlign: 'center'
         }}>
-          <h3>🎉 Video Processing Complete!</h3>
-          <p>Your professional video with narration is ready!</p>
+          <h3>🎉 Processing Complete!</h3>
+          <p>Your professional video with ElevenLabs narration is ready!</p>
+          <p><small>✨ No local files stored - everything is cloud-powered!</small></p>
         </div>
       )}
 
-      {/* Error Section */}
       {(status.status === 'failed' || status.status === 'timeout') && (
-        <div className="error-section" style={{
+        <div style={{
           backgroundColor: '#f8d7da',
           border: '1px solid #f5c6cb',
           color: '#721c24',
